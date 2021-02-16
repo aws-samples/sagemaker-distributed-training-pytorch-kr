@@ -138,14 +138,14 @@ class ProgressMeter(object):
 
 
 def adjust_learning_rate(optimizer, epoch, step, len_epoch, args):
-    """LR schedule that should yield 76% converged accuracy with batch size 256"""
     factor = epoch // 30
 
     if epoch >= 80:
         factor = factor + 1
 
     lr = args.lr * (0.1**factor)
-    """Warmup"""
+    
+    # Warmup
     if epoch < 5:
         lr = lr * float(1 + step + epoch * len_epoch) / (5. * len_epoch)
 
@@ -215,9 +215,9 @@ def aws_s3_sync(source, destination):
 
 
 def sync_local_checkpoints_to_s3(
-        local_path="/opt/ml/checkpoints",
-        s3_path=os.path.dirname(os.path.dirname(os.getenv(
-            'SM_MODULE_DIR', ''))) + '/checkpoints'):
+    local_path="/opt/ml/checkpoints",
+    s3_path=os.path.dirname(os.path.dirname(os.getenv('SM_MODULE_DIR', ''))) +
+    '/checkpoints'):
     """ sample function to sync checkpoints from local path to s3 """
 
     import boto3, botocore
@@ -245,9 +245,9 @@ def sync_local_checkpoints_to_s3(
 
 
 def sync_s3_checkpoints_to_local(
-        local_path="/opt/ml/checkpoints",
-        s3_path=os.path.dirname(os.path.dirname(os.getenv(
-            'SM_MODULE_DIR', ''))) + '/checkpoints'):
+    local_path="/opt/ml/checkpoints",
+    s3_path=os.path.dirname(os.path.dirname(os.getenv('SM_MODULE_DIR', ''))) +
+    '/checkpoints'):
     """ sample function to sync checkpoints from s3 to local path """
 
     import boto3, botocore

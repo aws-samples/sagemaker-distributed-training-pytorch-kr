@@ -10,6 +10,14 @@ import warnings
 import cv2
 from typing import Callable, cast
 
+from albumentations import (
+    RandomResizedCrop, HorizontalFlip, IAAPerspective, ShiftScaleRotate, CLAHE,
+    RandomRotate90, Transpose, ShiftScaleRotate, Blur, OpticalDistortion,
+    GridDistortion, HueSaturationValue, IAAAdditiveGaussianNoise, GaussNoise,
+    MotionBlur, MedianBlur, RandomBrightnessContrast, IAAPiecewiseAffine,
+    IAASharpen, IAAEmboss, Flip, OneOf, Compose, Resize, VerticalFlip,
+    HorizontalFlip, CenterCrop, Normalize)
+
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
@@ -23,14 +31,6 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
 from torchnet.dataset import SplitDataset
 import webdataset as wds
-
-from albumentations import (
-    RandomResizedCrop, HorizontalFlip, IAAPerspective, ShiftScaleRotate, CLAHE,
-    RandomRotate90, Transpose, ShiftScaleRotate, Blur, OpticalDistortion,
-    GridDistortion, HueSaturationValue, IAAAdditiveGaussianNoise, GaussNoise,
-    MotionBlur, MedianBlur, RandomBrightnessContrast, IAAPiecewiseAffine,
-    IAASharpen, IAAEmboss, Flip, OneOf, Compose, Resize, VerticalFlip,
-    HorizontalFlip, CenterCrop, Normalize)
 
 import dis_util
 import util
@@ -309,12 +309,10 @@ def train(local_rank, args):
 
     if local_rank is not None:
         args.local_rank = local_rank
-        
+
     # distributed_setting
     if args.multigpus_distributed:
         args = dis_util.dist_setting(args)
-
-
 
     # choose model from pytorch model_zoo
     model = util.torch_model(
@@ -379,18 +377,15 @@ def train(local_rank, args):
             batch_idx += 1
 
             if args.model_parallel:
-                print("** smp_train_step **")
                 output, loss = dis_util.train_step(model, criterion, input,
                                                    target, args.scaler, args)
                 # Rubik: Average the loss across microbatches.
                 loss = loss.reduce_mean()
 
-                print("reduce_mean : {}".format(loss))
             else:
-                #                 print("** not model_parallel")
                 output = model(input)
                 loss = criterion(output, target)
-            
+
             if not args.model_parallel:
                 # compute gradient and do SGD step
                 optimizer.zero_grad()
@@ -429,21 +424,22 @@ def train(local_rank, args):
                 end = time.time()
 
                 #                 if args.rank == 0:
-                print('Epoch: [{0}][{1}/{2}] '
-                      'Train_Time={batch_time.val:.3f}: avg-{batch_time.avg:.3f}, '
-                      'Train_Speed={3:.3f} ({4:.3f}), '
-                      'Train_Loss={loss.val:.10f}:({loss.avg:.4f}), '
-                      'Train_Prec@1={top1.val:.3f}:({top1.avg:.3f}), '
-                      'Train_Prec@5={top5.val:.3f}:({top5.avg:.3f})'.format(
-                          epoch,
-                          batch_idx,
-                          len(train_loader),
-                          args.world_size * args.batch_size / batch_time.val,
-                          args.world_size * args.batch_size / batch_time.avg,
-                          batch_time=batch_time,
-                          loss=losses,
-                          top1=top1,
-                          top5=top5))
+                print(
+                    'Epoch: [{0}][{1}/{2}] '
+                    'Train_Time={batch_time.val:.3f}: avg-{batch_time.avg:.3f}, '
+                    'Train_Speed={3:.3f} ({4:.3f}), '
+                    'Train_Loss={loss.val:.10f}:({loss.avg:.4f}), '
+                    'Train_Prec@1={top1.val:.3f}:({top1.avg:.3f}), '
+                    'Train_Prec@5={top5.val:.3f}:({top5.avg:.3f})'.format(
+                        epoch,
+                        batch_idx,
+                        len(train_loader),
+                        args.world_size * args.batch_size / batch_time.val,
+                        args.world_size * args.batch_size / batch_time.avg,
+                        batch_time=batch_time,
+                        loss=losses,
+                        top1=top1,
+                        top5=top5))
 
         acc1 = validate(test_loader, model, criterion, epoch, model_history,
                         args)
@@ -497,7 +493,7 @@ def validate(val_loader, model, criterion, epoch, model_history, args):
     model.eval()
     end = time.time()
 
-#     print("**** validate *****")
+    #     print("**** validate *****")
     test_losses = []
     for batch_idx, (input, target) in enumerate((val_loader)):
         input = input.to(args.device)
@@ -553,8 +549,6 @@ def validate(val_loader, model, criterion, epoch, model_history, args):
             model_history['val_top1'].append(top1.val)
             model_history['val_top5'].append(top5.val)
 
-    print('Prec@1={top1.avg:.3f}, Prec@5={top5.avg:.3f}'.format(top1=top1,
-                                                                 top5=top5))
     model_history['val_avg_epoch'].append(epoch)
     model_history['val_avg_batch_time'].append(batch_time.avg)
     model_history['val_avg_losses'].append(losses.avg)

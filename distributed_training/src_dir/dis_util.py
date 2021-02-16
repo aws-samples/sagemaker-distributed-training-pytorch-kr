@@ -7,6 +7,7 @@ import random
 import sys
 import shutil
 import warnings
+import importlib
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -21,18 +22,13 @@ from torch.cuda.amp import autocast
 
 import util
 
-# smdist import package
 try:
-    # Import smdist PyTorch Modules
-    import smdistributed.dataparallel.torch.distributed as sdp
-    from smdistributed.dataparallel.torch.parallel.distributed import DistributedDataParallel as DDP
-    
-    # SMP: Import SMP API
     import smdistributed.modelparallel.torch as smp
-
+    
 except ImportError:
     pass
 #     raise ImportError("Please install smdist.")
+
 
 try:
     from apex.parallel import DistributedDataParallel as apexDDP
@@ -50,7 +46,25 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
+def _sdp_import(args):
+    # Remove the import of smdistributed.dataparallel as
+    # that causes the MPI init/shutdown error at exit time
+
+    try:
+        sdp = importlib.import_module("smdistributed.dataparallel.torch.distributed")
+        DDP = importlib.import_module("smdistributed.dataparallel.torch.parallel.distributed","DistributedDataParallel")
+#         import smdistributed.dataparallel.torch.distributed as sdp
+#         from smdistributed.dataparallel.torch.parallel.distributed import DistributedDataParallel as DDP
+        return sdp, DDP
+
+    except ImportError:
+        pass
+    #     raise ImportError("Please install smdist.")
+    
+    
+    
 def dist_init(fn, args):
+    
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
@@ -73,32 +87,24 @@ def dist_init(fn, args):
         args.multigpus_distributed))
     logger.debug("Number of gpus available - {}".format(args.num_gpus))
 
-    #     print("######### Start Training #########")
-
     if args.multigpus_distributed:
         if args.apex:
             # Initialize the distributed environment.
             mp.spawn(fn, nprocs=args.num_gpus, args=(args, ))
         else:
-            if args.data_parallel and not sdp.is_initialized():
-                sdp.init_process_group()
-            elif args.model_parallel and not smp.is_initialized():
+            if args.data_parallel:
+                sdp, DDP = _sdp_import(args)
+                sdp.init_process_group() if not sdp.is_initialized() else None    
+            elif args.model_parallel:
                 smp.init()
-
             fn(None, args)
-
-            if args.model_parallel:
-                smp.barrier()
+            
     else:
         fn(0, args)
 
 
-#     return args
-
-
 def dist_setting(args):
     #     args.data_parallel = False
-
     print("args.data_parallel : {}".format(args.data_parallel))
     print("args.model_parallel : {}".format(args.model_parallel))
     print("args.apex : {}".format(args.apex))
@@ -107,20 +113,18 @@ def dist_setting(args):
     args.host_num = args.hosts.index(args.current_host)
 
     if args.data_parallel:
+        sdp, DDP = _sdp_import(args)
+        
         args.world_size = sdp.get_world_size()
         args.rank = sdp.get_rank()  # total rank in all hosts
         args.local_rank = sdp.get_local_rank()  # rank per host
     elif args.model_parallel:
         args.world_size = smp.size()
+        args.world_size = args.num_gpus * len(args.hosts)
         args.local_rank = smp.local_rank()  # rank per host
         args.rank = smp.rank()
         args.dp_size = smp.dp_size()
         args.dp_rank = smp.dp_rank()
-        print(
-            "smp.rank() : {}, smp.size() : {}, smp.mp_rank() : {}, smp.local_size() : {}, smp.get_mp_group() : {}, smp.get_dp_group() : {}, smp.local_rank() : {}, smp.dp_size() : {}, smp.dp_rank() : {}"
-            .format(smp.rank(), smp.size(), smp.mp_rank(), smp.local_size(),
-                    smp.get_mp_group(), smp.get_dp_group(), smp.local_rank(),
-                    smp.dp_size(), smp.dp_rank()))
     else:
         args.world_size = len(args.hosts) * args.num_gpus
         if args.local_rank is not None:
@@ -135,15 +139,11 @@ def dist_setting(args):
             .format(args.backend, dist.get_world_size()) +
             'Current host rank is {}. Number of gpus: {}'.format(
                 dist.get_rank(), args.num_gpus))
-
-    print("**** [dist_setting] args.rank : {}".format(args.rank))
-    print("args.world_size : {}".format(args.world_size))
-    print("Use GPU: {} for training".format(args.local_rank))
-
+    
+#     if not args.model_parallel:
     args.lr = args.lr * float(args.world_size)
-
-#     args.batch_size //= args.world_size // args.num_gpus
-#     args.batch_size = max(args.batch_size, 1)
+    args.batch_size //= args.world_size // args.num_gpus
+    args.batch_size = max(args.batch_size, 1)
 
     return args
 
@@ -177,7 +177,7 @@ def dist_model(model, args):
     return model, args
 
 
-def apex_init(model, optimizer, args):
+def apex_init(model, optimizer, args):    
     model = model.cuda()
     model, optimizer = amp.initialize(
         model,
@@ -191,7 +191,9 @@ def apex_init(model, optimizer, args):
 
 
 def sdp_init(model, optimizer, args):
-    model = DDP(model.to(args.device), broadcast_buffers=False)
+    sdp, DDP = _sdp_import(args)
+    
+    model = DDP.DistributedDataParallel(model.to(args.device), broadcast_buffers=False)
     #     model = DDP(model, device_ids=[args.rank], broadcast_buffers=False)
     model.cuda(args.local_rank)
     return model, optimizer, args
@@ -303,15 +305,13 @@ def barrier():
 try:
     # Rubik: Define smp.step. Return any tensors needed outside.
     @smp.step
-    def train_step(model, criterion, input, target, scaler, args):
+    def train_step(model, criterion, input, target, scaler, args):        
         with autocast(1 > 0):
             output = model(input)
 
         loss = criterion(output, target)
-
         loss = loss.mean()
 
-        print("***** smp train_step : {}".format(loss))
         # scaled_loss = scaler.scale(loss) if args.amp else loss
         model.backward(loss)
         return output, loss
@@ -322,7 +322,6 @@ try:
         output = model(input)
         loss = criterion(output, target)
         loss = loss.mean()
-        print("***** smp test_step : {}".format(loss))
         return output, loss
 except:
     pass
