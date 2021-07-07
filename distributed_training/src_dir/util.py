@@ -50,7 +50,7 @@ def torch_model(model_name,
         if model_parallel:
             if local_rank == 0:
                 model = models.__dict__[model_name](pretrained=True)
-            dis_util.barrier()
+            dis_util.smp_barrier()
         model = models.__dict__[model_name](pretrained=True)
     else:
         print("=> creating model '{}'".format(model_name))
@@ -76,7 +76,7 @@ def accuracy(output, target, topk=(1, )):
 
         _, pred = output.topk(maxk, 1, True, True)
         pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
+        correct = pred.eq(target.view(1, -1).expand_as(pred)).contiguous()
 
         res = []
         for k in topk:

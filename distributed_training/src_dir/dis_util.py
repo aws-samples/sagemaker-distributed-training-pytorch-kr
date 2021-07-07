@@ -87,7 +87,7 @@ def dist_init(fn, args):
         args.multigpus_distributed))
     logger.debug("Number of gpus available - {}".format(args.num_gpus))
 
-    if args.multigpus_distributed:
+    if args.multigpus_distributed and args.exp_cnt == 0:
         if args.apex:
             # Initialize the distributed environment.
             mp.spawn(fn, nprocs=args.num_gpus, args=(args, ))
@@ -97,17 +97,18 @@ def dist_init(fn, args):
                 sdp.init_process_group() if not sdp.is_initialized() else None    
             elif args.model_parallel:
                 smp.init()
-            fn(None, args)
+            args.exp_cnt = fn(None, args)
+            
             
     else:
-        fn(0, args)
+        args.exp_cnt = fn(0, args)
+    return args
 
 
 def dist_setting(args):
     #     args.data_parallel = False
-    print("args.data_parallel : {}".format(args.data_parallel))
-    print("args.model_parallel : {}".format(args.model_parallel))
-    print("args.apex : {}".format(args.apex))
+    print(f"args.data_parallel : {args.data_parallel}, args.model_parallel : {args.model_parallel}, args.apex : {args.apex}")
+
 
     args.world_size = 1
     args.host_num = args.hosts.index(args.current_host)
@@ -222,10 +223,10 @@ def apex_loss(loss, optimizer):
 
 def reduce_tensor(tensor, args):
     rt = tensor.clone()
-    #     print("rt : {}".format(rt))
-    #     sdp.all_reduce(rt)
-    #     print("args.world_size : {}".format(args.world_size))
-    #     rt /= args.world_size
+    print("rt : {}".format(rt))
+    sdp.all_reduce(rt)
+    print("args.world_size : {}".format(args.world_size))
+    rt /= args.world_size
     return rt
 
 
@@ -298,10 +299,13 @@ def smp_savemodel(model, optimizer, is_best, args):
     smp.barrier()
 
 
-def barrier():
+def smp_barrier():
     smp.barrier()
 
-
+def sdp_barrier(args):
+    sdp, DDP = _sdp_import(args)
+    sdp.barrier()
+    
 try:
     # Rubik: Define smp.step. Return any tensors needed outside.
     @smp.step

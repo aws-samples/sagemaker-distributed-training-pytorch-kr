@@ -11,11 +11,11 @@ import cv2
 from typing import Callable, cast
 
 from albumentations import (
-    RandomResizedCrop, HorizontalFlip, IAAPerspective, ShiftScaleRotate, CLAHE,
+    RandomResizedCrop, HorizontalFlip, ShiftScaleRotate, CLAHE,
     RandomRotate90, Transpose, ShiftScaleRotate, Blur, OpticalDistortion,
-    GridDistortion, HueSaturationValue, IAAAdditiveGaussianNoise, GaussNoise,
-    MotionBlur, MedianBlur, RandomBrightnessContrast, IAAPiecewiseAffine,
-    IAASharpen, IAAEmboss, Flip, OneOf, Compose, Resize, VerticalFlip,
+    GridDistortion, HueSaturationValue, GaussNoise,
+    MotionBlur, MedianBlur, RandomBrightnessContrast,
+    Sharpen, Emboss, Flip, OneOf, Compose, Resize, VerticalFlip,
     HorizontalFlip, CenterCrop, Normalize)
 
 import numpy as np
@@ -30,7 +30,7 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
 from torchnet.dataset import SplitDataset
-import webdataset as wds
+# import webdataset as wds
 
 import dis_util
 import util
@@ -43,12 +43,11 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 class AlbumentationImageDataset(Dataset):
-    def __init__(self, image_path, transform, args, check_img=None):
+    def __init__(self, image_path, transform, args):
         self.image_path = image_path
         self.transform = transform
         self.args = args
-        self.check_img = check_img
-        self.image_list = self._loader_file(self.image_path, self.check_img)
+        self.image_list = self._loader_file(self.image_path)
 
     def __len__(self):
         return (len(self.image_list))
@@ -65,7 +64,7 @@ class AlbumentationImageDataset(Dataset):
         return torch.tensor(transformed_image,
                             dtype=torch.float), self.image_list[i][1]
 
-    def _loader_file(self, image_path, check_img):
+    def _loader_file(self, image_path):
         extensions = ('.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif',
                       '.tiff', '.webp')
 
@@ -93,18 +92,8 @@ class AlbumentationImageDataset(Dataset):
                     path = os.path.join(root, fname)
 
                     if is_valid_file(path):
-                        not_insert = False
-                        if check_img:
-                            try:
-                                image = cv2.imread(path)
-                                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                                not_insert = False
-                            except:
-                                not_insert = True
-                                pass
-                        if not not_insert:
-                            item = path, class_index
-                            instances.append(item)
+                        item = path, class_index
+                        instances.append(item)
         return instances
 
 
@@ -223,10 +212,7 @@ def _get_train_data_loader(args, **kwargs):
 
     transform = Compose([
         RandomResizedCrop(args.height, args.width),
-        OneOf([
-            IAAAdditiveGaussianNoise(),
-            GaussNoise(),
-        ], p=0.2),
+        GaussNoise(p=0.2),
         VerticalFlip(p=0.5),
         OneOf([
             MotionBlur(p=.2),
@@ -236,8 +222,8 @@ def _get_train_data_loader(args, **kwargs):
               p=0.2),
         OneOf([
             CLAHE(clip_limit=2),
-            IAASharpen(),
-            IAAEmboss(),
+            Sharpen(),
+            Emboss(),
             RandomBrightnessContrast(),
         ],
               p=0.3),
@@ -255,8 +241,7 @@ def _get_train_data_loader(args, **kwargs):
     dataset = AlbumentationImageDataset(image_path=os.path.join(
         args.data_dir, 'train'),
                                         transform=transform,
-                                        args=args,
-                                        check_img=True)
+                                        args=args)
 
     drop_last = args.model_parallel
 
@@ -285,8 +270,7 @@ def _get_test_data_loader(args, **kwargs):
     image_path = os.path.join(args.data_dir, 'val')
     dataset = AlbumentationImageDataset(image_path=image_path,
                                         transform=transform,
-                                        args=args,
-                                        check_img=True)
+                                        args=args)
 
     drop_last = args.model_parallel
     print("test drop_last : {}".format(drop_last))
@@ -351,7 +335,7 @@ def train(local_rank, args):
         100. * len(test_loader.sampler) / len(test_loader.dataset)))
 
     print(" local_rank : {}, local_batch_size : {}".format(
-        local_rank, args.batch_size))
+        args.local_rank, args.batch_size))
 
     for epoch in range(1, args.num_epochs + 1):
         ##
@@ -386,9 +370,9 @@ def train(local_rank, args):
                 output = model(input)
                 loss = criterion(output, target)
 
-            if not args.model_parallel:
-                # compute gradient and do SGD step
-                optimizer.zero_grad()
+#             if not args.model_parallel:
+#                 # compute gradient and do SGD step
+#                 optimizer.zero_grad()
 
             if args.apex:
                 dis_util.apex_loss(loss, optimizer)
@@ -478,6 +462,15 @@ def train(local_rank, args):
                     os.path.join(args.output_data_dir, 'model_history.p'),
                     model_history)
             dis_util.smp_savemodel(model, optimizer, is_best, args)
+            
+    if args.model_parallel:
+        dis_util.smp_barrier()
+
+    if args.data_parallel:
+        dis_util.sdp_barrier(args)
+
+    return 1
+        
 
 
 def validate(val_loader, model, criterion, epoch, model_history, args):
@@ -555,28 +548,33 @@ def validate(val_loader, model, criterion, epoch, model_history, args):
     model_history['val_avg_top1'].append(top1.avg)
     model_history['val_avg_top5'].append(top5.avg)
 
-    if args.assert_losses:
-        dist_util.smp_lossgather(losses.avg, args)
+    if args.model_parallel:
+        if args.assert_losses:
+            dis_util.smp_lossgather(losses.avg, args)
+        dis_util.smp_barrier()
+        
     return top1.avg
-
 
 def main():
     print("start main function")
     args = args_fn()
+    args.exp_cnt = 0
     print(
         "args.data_parallel : {} , args.model_parallel : {}, args.apex : {} , args.num_gpus : {}, args.num_classes"
         .format(args.data_parallel, args.model_parallel, args.apex,
                 args.num_gpus, args.num_classes))
 
     args.use_cuda = int(args.num_gpus) > 0
+    
+#     os.environ['PYTHONWARNINGS'] = 'ignore:semaphore_tracker:UserWarning'
 
     args.kwargs = {
         'num_workers': 16,
         'pin_memory': True
     } if args.use_cuda else {}
     args.device = torch.device("cuda" if args.use_cuda else "cpu")
-    args = dis_util.dist_init(train, args)
-
+    if args.exp_cnt == 0:
+        args = dis_util.dist_init(train, args)
 
 if __name__ == '__main__':
     main()
