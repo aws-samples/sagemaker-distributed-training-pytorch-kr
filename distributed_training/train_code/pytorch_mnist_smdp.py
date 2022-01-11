@@ -250,10 +250,10 @@ def main():
     ####### 4. SageMaker Distributed Data Parallel  #######
     #######  - Add num_replicas and rank            #######
     #######################################################   
-    
-    model = smdpDDP(Net().to(device))
     torch.cuda.set_device(local_rank)
-    model.cuda(local_rank)
+    model = smdpDDP(Net().to(device),
+                    device_ids=[local_rank],
+                    output_device=local_rank)
     #######################################################  
     
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
