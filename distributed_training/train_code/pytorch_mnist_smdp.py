@@ -28,21 +28,21 @@ from model_def import Net
 from torch.optim.lr_scheduler import StepLR
 from torchvision import datasets, transforms
 
-datasets.MNIST.mirrors = ["https://sagemaker-sample-files.s3.amazonaws.com/datasets/image/MNIST/"]
+import importlib
+
+# datasets.MNIST.mirrors = ["https://sagemaker-sample-files.s3.amazonaws.com/datasets/image/MNIST/"]
 
 ########################################################
-####### 1. SageMaker Distributed Data Parallel  ########
+####### 1. Distributed Data Parallel  ########
 #######  - Import Package and Initialization    ########
 ########################################################
+import smdistributed.dataparallel.torch.torch_smddp
 
-import smdistributed.dataparallel.torch.distributed as smdp
-from smdistributed.dataparallel.torch.parallel.distributed import DistributedDataParallel as smdpDDP
-
-if not smdp.is_initialized():
-    smdp.init_process_group()
-    
+backend = "gloo" if not torch.cuda.is_available() else "smddp" ## "nccl"
 #######################################################
 
+import torch.distributed as dist
+from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 
 class CUDANotFoundException(Exception):
     pass
@@ -60,7 +60,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         optimizer.step()
         if batch_idx % args.log_interval == 0 and args.rank == 0:
             print(
-                "Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
+                "Train Epoch: {} [{}/{} ({:.0f}%)]\t - Train Loss: {:.6f},".format(
                     epoch,
                     batch_idx * len(data) * args.world_size,
                     len(train_loader.dataset),
@@ -87,8 +87,8 @@ def test(model, device, test_loader):
     test_loss /= len(test_loader.dataset)
 
     print(
-        "\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n".format(
-            test_loss, correct, len(test_loader.dataset), 100.0 * correct / len(test_loader.dataset)
+        "\nTest set: Average loss: {:.4f}, Accuracy: {:.2f}% ({}/{})\n".format(
+            test_loss, 100.0 * correct / len(test_loader.dataset), correct, len(test_loader.dataset)
         )
     )
 
@@ -103,6 +103,7 @@ def main():
         metavar="N",
         help="input batch size for training (default: 64)",
     )
+
     parser.add_argument(
         "--test-batch-size",
         type=int,
@@ -155,10 +156,16 @@ def main():
     ####### 2. SageMaker Distributed Data Parallel   #######
     #######  - Get all number of GPU and rank number #######
     ########################################################
+    
     args = parser.parse_args()
-    args.world_size = smdp.get_world_size()
-    args.rank = rank = smdp.get_rank()
-    args.local_rank = local_rank = smdp.get_local_rank()
+    
+    args.world_size = int(os.environ['OMPI_COMM_WORLD_SIZE'])
+    args.rank = rank = int(os.environ['OMPI_COMM_WORLD_RANK'])
+    args.local_rank = local_rank = int(os.environ['OMPI_COMM_WORLD_LOCAL_RANK'])
+    
+    dist.init_process_group(backend=backend,
+                            rank=rank,
+                            world_size=args.world_size)
     ########################################################
     
     args.lr = 1.0
@@ -203,7 +210,7 @@ def main():
     #######  - Prevent other ranks from accessing     #####
     #######    the data early                         #####
     #######################################################
-    smdp.barrier()
+    dist.barrier()
     #######################################################    
     
     if not is_first_local_rank:
@@ -249,11 +256,11 @@ def main():
     #######################################################
     ####### 4. SageMaker Distributed Data Parallel  #######
     #######  - Add num_replicas and rank            #######
-    #######################################################   
+    ####################################################### 
     torch.cuda.set_device(local_rank)
-    model = smdpDDP(Net().to(device),
-                    device_ids=[local_rank],
-                    output_device=local_rank)
+    model = DDP(Net().to(device),
+                device_ids=[local_rank],
+                output_device=local_rank)
     #######################################################  
     
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
