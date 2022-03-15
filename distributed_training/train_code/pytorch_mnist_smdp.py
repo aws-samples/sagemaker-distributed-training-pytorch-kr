@@ -97,7 +97,7 @@ def check_sagemaker(args):
     ## SageMaker
     if os.environ.get('SM_MODEL_DIR') is not None:
         args.data_path = os.environ['SM_CHANNEL_TRAINING']
-        args.save_dir =os.environ.get('SM_MODEL_DIR')
+        args.save_model =os.environ.get('SM_MODEL_DIR')
     return args
 
 def main():
@@ -158,12 +158,7 @@ def main():
         default="/tmp/data",
         help="Path for downloading " "the MNIST dataset",
     )
-    parser.add_argument(
-        "--save-dir",
-        type=str,
-        default="/tmp/checkpoints",
-        help="Path for downloading " "the MNIST dataset",
-    )
+
 
     ########################################################
     ####### 2. SageMaker Distributed Data Parallel   #######
@@ -287,7 +282,7 @@ def main():
         scheduler.step()
 
     if args.save_model:
-        torch.save(model.state_dict(), args.save_dir + "/mnist_cnn.pt")
+        torch.save(model.state_dict(), args.save_model + "/mnist_cnn.pt")
 
 
 if __name__ == "__main__":
