@@ -93,6 +93,13 @@ def test(model, device, test_loader):
     )
 
 
+def check_sagemaker(args):
+    ## SageMaker
+    if os.environ.get('SM_MODEL_DIR') is not None:
+        args.data_path = os.environ['SM_CHANNEL_TRAINING']
+        args.save_dir =os.environ.get('SM_MODEL_DIR')
+    return args
+
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description="PyTorch MNIST Example")
@@ -151,6 +158,12 @@ def main():
         default="/tmp/data",
         help="Path for downloading " "the MNIST dataset",
     )
+    parser.add_argument(
+        "--save-dir",
+        type=str,
+        default="/tmp/checkpoints",
+        help="Path for downloading " "the MNIST dataset",
+    )
 
     ########################################################
     ####### 2. SageMaker Distributed Data Parallel   #######
@@ -158,6 +171,8 @@ def main():
     ########################################################
     
     args = parser.parse_args()
+    
+    args = check_sagemaker(args)
     
     args.world_size = int(os.environ['OMPI_COMM_WORLD_SIZE'])
     args.rank = rank = int(os.environ['OMPI_COMM_WORLD_RANK'])
@@ -272,7 +287,7 @@ def main():
         scheduler.step()
 
     if args.save_model:
-        torch.save(model.state_dict(), "mnist_cnn.pt")
+        torch.save(model.state_dict(), args.save_dir + "/mnist_cnn.pt")
 
 
 if __name__ == "__main__":
