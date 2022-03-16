@@ -204,34 +204,15 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # select a single rank per node to download data
-    is_first_local_rank = local_rank == 0
-    if is_first_local_rank:
-        train_dataset = datasets.MNIST(
-            data_path,
-            train=True,
-            download=True,
-            transform=transforms.Compose(
-                [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-            ),
-        )
+    train_dataset = datasets.MNIST(
+        data_path,
+        train=True,
+        download=False,
+        transform=transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+        ),
+    )
 
-    #######################################################
-    ####### 2-1. SageMaker Distributed Data Parallel  #####
-    #######  - Prevent other ranks from accessing     #####
-    #######    the data early                         #####
-    #######################################################
-    dist.barrier()
-    #######################################################    
-    
-    if not is_first_local_rank:
-        train_dataset = datasets.MNIST(
-            data_path,
-            train=True,
-            download=False,
-            transform=transforms.Compose(
-                [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-            ),
-        )
     #######################################################
     ####### 3. SageMaker Distributed Data Parallel  #######
     #######  - Add num_replicas and rank            #######
