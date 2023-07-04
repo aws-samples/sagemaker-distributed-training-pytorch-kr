@@ -1,5 +1,0 @@
-albumentations
-opencv-python
-pyarrow
-torchnet
-webdataset
