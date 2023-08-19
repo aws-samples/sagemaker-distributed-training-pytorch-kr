@@ -5,7 +5,7 @@ This repo introduces training scripts that run distributed training on an Amazon
 - [1_training_mnist_ddp.ipynb](1_training_mnist_ddp.ipynb) : Pytorch/SageMaker Distributed Data Parallel with MNIST dataset
 - [2_training_oxford-pet_ddp.ipynb](2_training_oxford-pet_ddp.ipynb) : Pytorch/SageMaker Distributed Data Parallel with OXFORD-PET dataset
 - [3_training_megatron-lm.ipynb](3_training_megatron-lm.ipynb) : [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) with [CodeParrot](https://github.com/huggingface/blog/blob/main/megatron-training.md#data-preprocessing) 
-- [4_training_alpaca_deepspeed.ipynb](4_training_alpaca_deepspeed.ipynb) : [Alpaca](https://github.com/tatsu-lab/stanford_alpaca) using [DeepSpeed](https://www.deepspeed.ai/tutorials/advanced-install/) with [alpaca_data.json](https://github.com/tatsu-lab/stanford_alpaca/blob/main/alpaca_data.json)
+- [4_training_alpaca_deepspeed.ipynb](4_training_alpaca_deepspeed.ipynb) : [Alpaca](https://github.com/tatsu-lab/stanford_alpaca) using [DeepSpeed](https://www.deepspeed.ai/tutorials/advanced-install/) with [Alpaca Dataset](https://github.com/tatsu-lab/stanford_alpaca/blob/main/alpaca_data.json)
 
 ## SageMaker Training Overview
 With the increasing demand for machine learning models, the need for efficient and scalable training methods has become crucial. Distributed training allows users to train their models on multiple machines simultaneously, reducing the training time significantly.
