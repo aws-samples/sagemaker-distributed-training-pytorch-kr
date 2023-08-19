@@ -21,4 +21,3 @@ Go to the [IAM Role Console](https://console.aws.amazon.com/iam/#/roles), search
 
 ## Contributors
 - Youngjoon Choi (choijoon@amazon.com)
-- Daekeun Kim (daekeun@amazon.com)
